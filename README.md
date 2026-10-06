@@ -82,13 +82,19 @@ notes: <first failing assertion / error, if any>
 
 > Текущая ревизия — **PROMPT VERSION 3** (см. шапку PLANE.md). Ветки моделей, собранные по версиям 1 и 2, напрямую с ней не сопоставимы. В v2 был починен формат модулей, добавлены разделы `## PACKET PIPELINE` и `## TIMEOUTS & LIVENESS`, а тавтологичные round-trip-самотесты заменены на known-answer-векторы. В v3 закрыты места, на которых падала даже корректная реализация: требование `import type` при `verbatimModuleSyntax`, единственное разрешённое исключение `login/ → game/Opcodes.ts`, тупик с `UserInfo` до `CharSelected`, запускаемый крипто-гейт (`npm run selftest`), разметка байтов `CryptInit`, семантика счётчика неизвестных пакетов и таймера состояния, ответ на ping в любом состоянии и опциональный `L2_GAME_IP`.
 
+> Задача промпта — **создать клиент с нуля**. В ветке `main` нет ни `src/`, ни `package.json`, ни `tsconfig.json` — модель должна создать весь проект сама (каркас по `## PROJECT SETUP`, затем крипто, net, FSM и `index.ts`). Ничего «дописывать» в существующий код не нужно: пустой `src/` — это ожидаемое стартовое состояние.
+
 > Первая строка промпта — placeholder: вместо `[PASTE THE FULL CONTENTS OF PLANE.md HERE]` вставьте полное содержимое [PLANE.md](PLANE.md) (или прикрепите файл к сессии, если инструмент это позволяет).
 
 ```text
 [PASTE THE FULL CONTENTS OF PLANE.md HERE]
 
-Build a headless Lineage 2 client (chronicle HighFive, protocol 267) on Node.js 24 +
-TypeScript as ONE straight-line program. `npm run dev` does the whole run in a single
+CREATE, FROM SCRATCH, a headless Lineage 2 client (chronicle HighFive, protocol 267) on
+Node.js 24 + TypeScript. The repository currently contains ONLY the specification above and
+a filled .env — there is no package.json, no tsconfig.json and no src/. Create every file
+yourself.
+
+The client is ONE straight-line program. `npm run dev` does the whole run in a single
 pass: authenticate on the login server; obtain the 4 session ids + game server address;
 open a fresh game connection; select the character in slot L2_CHAR_SLOT; enter the world;
 print IN_GAME; answer server pings for 60 seconds; close cleanly and exit 0.
@@ -100,8 +106,9 @@ state list — follow the referenced section, do NOT restate or re-derive it her
 "COPY VERBATIM" block exactly. This block only orchestrates: order, control flow, edge cases.
 
 Build order
-1. Scaffold per `## PROJECT SETUP`: package.json ("type": "module", dev = `node
-   --experimental-strip-types src/index.ts`, NO ts-node, versions pinned exact),
+1. Create the scaffold per `## PROJECT SETUP` — none of these files exist yet: package.json
+   ("type": "module", dev = `node --experimental-strip-types src/index.ts`, NO ts-node,
+   versions pinned exact),
    tsconfig.json, .env.example, src/config.ts per `## MODULE CONTRACTS`, plus src/types.ts and
    src/game/Opcodes.ts and src/net/PacketReader.ts / PacketWriter.ts and src/debug/DebugTools.ts —
    these five COPY VERBATIM.
