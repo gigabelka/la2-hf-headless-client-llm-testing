@@ -80,9 +80,11 @@ notes: <first failing assertion / error, if any>
 
 ### Единый промпт
 
-> Текущая ревизия — **PROMPT VERSION 3** (см. шапку PLANE.md). Ветки моделей, собранные по версиям 1 и 2, напрямую с ней не сопоставимы. В v2 был починен формат модулей, добавлены разделы `## PACKET PIPELINE` и `## TIMEOUTS & LIVENESS`, а тавтологичные round-trip-самотесты заменены на known-answer-векторы. В v3 закрыты места, на которых падала даже корректная реализация: требование `import type` при `verbatimModuleSyntax`, единственное разрешённое исключение `login/ → game/Opcodes.ts`, тупик с `UserInfo` до `CharSelected`, запускаемый крипто-гейт (`npm run selftest`), разметка байтов `CryptInit`, семантика счётчика неизвестных пакетов и таймера состояния, ответ на ping в любом состоянии и опциональный `L2_GAME_IP`.
+> Текущая ревизия — **PROMPT VERSION 3** (см. шапку PLANE.md). Ветки моделей, собранные по версиям 1 и 2, напрямую с ней не сопоставимы. В v2 был починен формат модулей, добавлены разделы `## PACKET PIPELINE` и `## TIMEOUTS & LIVENESS`, а тавтологичные round-trip-самотесты заменены на known-answer-векторы. В v3 закрыты места, на которых падала даже корректная реализация: требование `import type` при `verbatimModuleSyntax`, единственное разрешённое исключение `login/ → game/Opcodes.ts`, тупик с `UserInfo` до `CharSelected`, запускаемый крипто-гейт (`npm run selftest`), разметка байтов `CryptInit`, семантика счётчика неизвестных пакетов и таймера состояния, ответ на ping в любом состоянии и опциональный `L2_GAME_IP`. Кроме того, в промпт добавлены git-правила (сборка прямо в `main`, полный запрет коммитов) — на протокол и крипто они не влияют, прогоны остаются сопоставимыми.
 
 > Задача промпта — **создать клиент с нуля**. В ветке `main` нет ни `src/`, ни `package.json`, ни `tsconfig.json` — модель должна создать весь проект сама (каркас по `## PROJECT SETUP`, затем крипто, net, FSM и `index.ts`). Ничего «дописывать» в существующий код не нужно: пустой `src/` — это ожидаемое стартовое состояние.
+
+> **Git-правила прогона.** Проект собирается **прямо в текущей ветке `main`** — не создавайте новых веток и не переключайтесь (`git checkout`, `git switch`, `git branch` не нужны). **Все коммиты запрещены**: ни `git commit`, ни `git add`, ни `git stash`, ни `git reset` — весь сгенерированный код остаётся в рабочем дереве (uncommitted), чтобы прогон можно было оценить и откатить как есть. [.env](.env) — только читать, не перезаписывать.
 
 > Первая строка промпта — placeholder: вместо `[PASTE THE FULL CONTENTS OF PLANE.md HERE]` вставьте полное содержимое [PLANE.md](PLANE.md) (или прикрепите файл к сессии, если инструмент это позволяет).
 
@@ -104,6 +106,11 @@ linear flow, one `=== REPORT ===`.
 PLANE.md above owns every byte, opcode, crypto algorithm, field layout, timeout and FSM
 state list — follow the referenced section, do NOT restate or re-derive it here; copy every
 "COPY VERBATIM" block exactly. This block only orchestrates: order, control flow, edge cases.
+
+Work in the current `main` branch and do not use git at all: no new branches, no
+checkout or switch, and NO COMMITS of any kind — not `git commit`, `git add`,
+`git stash` or `git reset`. Leave every generated file uncommitted in the working
+tree.
 
 Build order
 1. Create the scaffold per `## PROJECT SETUP` — none of these files exist yet: package.json
