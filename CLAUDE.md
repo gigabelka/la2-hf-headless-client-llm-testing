@@ -17,13 +17,15 @@ A sandbox for testing how well LLMs implement a complex network client from one 
 
 `main` holds only the scaffolding (PLANE.md, README.md, INFO.md, CLAUDE.md, `.claude/`, `.env`) — it has **no** `package.json`, `tsconfig.json`, or `src/`. Every other branch is one LLM's generated client (`deepseek-v4-pro`, `kimi-for-coding-k2.7`, `qwen3.6-27b-mtp`, …) with its own `package.json`, `tsconfig.json`, `.env.example` and `src/`; `-skills`/`-agents` suffixes mark runs where the .claude skills/subagents were available. When generating a new model's client, branch from `main` under that model's name; keep generated `src/` off `main`. A stray `node_modules/` on `main` is a leftover from a checked-out model branch, not a signal that the scaffold exists.
 
+**Where a run happens:** a generation run is no longer done inside this repo. `scripts/bootstrap-run.ps1 -Dest <dir>` deploys the minimal payload — `.claude/{skills,agents}` plus `PLANE.md` — into a separate directory **without git**, and the model builds there (`-NoSkills` for a baseline run without the tooling). `CLAUDE.md` and `.env` are not copied: the `.env` with real credentials has to be placed in the run directory by hand before gate 2. Because the run directory holds exactly one run, the isolation rule below is satisfied by construction; see INFO.md → `## Pre-flight` for the checklist that the skills and subagents actually got picked up.
+
 **Isolation rule:** when generating or fixing a client, work ONLY in the current model branch. Never read, copy, diff, or cherry-pick code from other branches (no `git show <branch>:src/...`, no checkouts of sibling branches, no `git log` mining of other models' commits) — each branch is an independent benchmark run of one model from the single prompt, and borrowing another model's solution invalidates the comparison. Do not switch branches mid-run.
 
 ## Commands
 
 There is no test suite or linter; verification is `tsc` + running the client against a live server (crypto self-tests run at startup, before any socket I/O).
 
-Requires **Node.js 24**. `npm run dev` is `node --experimental-strip-types src/index.ts` — native TS, **no `ts-node`** in the dependency list. Because Node only strips types (no full transform), the generated code avoids `enum`, `namespace`, and constructor parameter-properties; `tsconfig.json` sets `isolatedModules` to enforce that. `package.json` is `"type": "module"` and **every relative import carries its `.ts` extension** — the only combination Node 24 runs; `tsconfig` uses `nodenext` + `allowImportingTsExtensions` + `rewriteRelativeImportExtensions` so `tsc` rewrites them to `.js` in `dist/`. `node:crypto` is used only by RsaCrypt. Dependency versions in `package.json` are pinned exact (no `^`) so `tsc` behaves identically across model branches.
+Requires **Node.js 24**. `npm run dev` is `node --experimental-strip-types src/index.ts` — native TS, **no `ts-node`** in the dependency list. Because Node only strips types (no full transform), the generated code avoids `enum`, `namespace`, and constructor parameter-properties; `tsconfig.json` sets `isolatedModules` to enforce that. `package.json` is `"type": "module"` and **every relative import carries its `.ts` extension** — the only combination Node 24 runs; `tsconfig` uses `nodenext` + `allowImportingTsExtensions` + `rewriteRelativeImportExtensions` so `tsc` rewrites them to `.js` in `dist/`. `node:crypto` is used only by RsaCrypt. `tsconfig` also sets `verbatimModuleSyntax`, so every shared type must come in via `import type { … } from "../types.ts"` — a value import of anything from `types.ts` is a hard `TS1484` and is the most common way the first `tsc` pass fails. Dependency versions in `package.json` are pinned exact (no `^`) so `tsc` behaves identically across model branches.
 
 On `main` these commands only work **after** the scaffold has been generated (the single prompt itself creates `package.json`, `tsconfig.json` and `.env.example` per PLANE.md `## PROJECT SETUP`) — or after checking out a model branch.
 
@@ -32,6 +34,8 @@ npm install
 npx tsc --noEmit                # typecheck (the gate); or `npm run typecheck`
 
 npm run selftest                # gate 1 only: both crypto suites, no sockets, prints self-tests: 12/12
+                                # (entry point is src/selftest.ts — a separate COPY VERBATIM file,
+                                #  not src/crypto/selfTests.ts, which only exports the two suites)
 npm run dev                     # run the whole flow in one pass (login → IN_GAME → 60s keepalive)
 
 npm run build                   # tsc → dist/
@@ -46,7 +50,7 @@ The run prints a single `=== REPORT ===` block at the end (status PASS/FAIL, sel
 
 1. **Config** — `config.ts` loads and validates `.env` (throws a clear error on any missing/invalid value).
 2. **Crypto self-tests** — `runLoginCryptoSelfTests()` + `runGameCryptoSelfTests()` run once, **before any socket I/O**; a failed self-test aborts with a FAIL report.
-   They live in `src/crypto/selfTests.ts`.
+   They live in `src/crypto/selfTests.ts`; `src/selftest.ts` is the socket-free entry point that calls both and is what `npm run selftest` runs. A full `npm run dev` prints `self-tests: 14/14` — the 12 crypto checks plus two RSA-modulus checks that can only run in the socket phase; `npm run selftest` alone prints `12/12`.
 3. **Login server** — `runLogin(cfg, statePath)` in `login/LoginClient.ts`: `Connection`/`PacketReader`/`PacketWriter` + login crypto (Blowfish, NewCrypt, ScrambledRsaKey, RsaCrypt, LoginCrypt), FSM `WAIT_INIT → WAIT_GG_AUTH → WAIT_LOGIN_OK → WAIT_SERVER_LIST → WAIT_PLAY_OK`. Resolves a `LoginResult` (4 session ids + game host/port).
 4. **Game server** — `runGame(cfg, input, statePath)` in `game/GameClient.ts`: `crypto/GameCrypt.ts` (flag-driven 16-byte shifting XOR) + FSM `WAIT_CRYPT_INIT → WAIT_CHAR_LIST → WAIT_CHAR_SELECTED → WAIT_USER_INFO → IN_GAME`, `RequestKeyMapping` + `EnterWorld`, ping replies, 60s keepalive. Takes the `LoginResult` directly in memory as `GameInput`.
 5. **Report** — one final `report(statePath, artifacts, notes)` (`=== REPORT ===`) with `status: PASS`; any failure propagates to a single FAIL report and a non-zero exit.
@@ -62,13 +66,14 @@ The **l2-guardrails** skill is the checklist of build-breaking mistakes — read
 - Copy the reusable crypto from PLANE.md **verbatim**. Blowfish/NewCrypt/LoginCrypt/GameCrypt are pure TS (no `node:crypto`); RsaCrypt is the exception (uses `node:crypto` for RSA). Run crypto self-tests before any socket I/O — gate 1 is all 12 checks green, round-trips **and** KATs (the known-answer vectors are what catch a non-verbatim copy; never edit an expected hex to make one pass).
 - Use PLANE.md's HighFive opcode map, never "textbook" L2 opcodes.
 - `Connection.send()` prepends the 2-byte LE length itself — never add it manually, and remember `onPacket` hands back the frame *including* that length: PLANE.md `## PACKET PIPELINE` is the one path from frame to parsed fields.
-- Every wait is bounded (PLANE.md `## TIMEOUTS & LIVENESS`): 10 s connect, 15 s per `WAIT_*` state, 45 s watchdog, 60 s keepalive from the `IN_GAME` line. A run that hangs is a bug.
+- Every wait is bounded (PLANE.md `## TIMEOUTS & LIVENESS`): 10 s connect, 15 s per `WAIT_*` state, 45 s watchdog, 60 s keepalive from the `IN_GAME` line. A run that hangs is a bug. Three semantics there are easy to get wrong: the per-state 15 s is a **no-progress** timer (restart it on every frame parsed in that state, dropped unknown packets and answered pings included), the 45 s watchdog is a hard global ceiling (not the ≈150 s sum of the per-state budgets), and `WAIT_GG_AUTH` has its own 3 s budget whose expiry — or any non-`0x0B` packet — is **not** a failure but the exit to `RequestAuthLogin` with `ggResponse = 0`, after which that packet is re-dispatched in `WAIT_LOGIN_OK`.
+- Every stage promise settles exactly once and every timer is cleared before resolving — the verbatim `Connection` only logs socket errors and then calls `onClose`, so the FSM must treat `onClose` before `UserInfo` as terminal.
 
 Project skills: `build-l2` (the build order for generating the client from PLANE.md, from an empty `src/`), `run` (run the client + parse the report), `debug-l2` (map a failure symptom to the fix), `l2-guardrails` (the build-breaking-mistakes checklist). `writing-great-skills` is a user-invoked authoring reference for maintaining these skills.
 
 Specialized subagents mirror this workflow. A from-scratch build is the full chain in `build-l2` → *Who owns which step*, driven by the orchestrator (a subagent cannot spawn another): **orchestrator** scaffolds (steps 1–2: `config.ts` plus the verbatim `types.ts` / `game/Opcodes.ts` / `net/PacketReader.ts` / `net/PacketWriter.ts` / `debug/DebugTools.ts`, `npm install`) → `crypto-porter` (crypto verbatim + self-tests to green, gate 1) → `guardrails-reviewer` → `fsm-builder` (`net/Connection.ts`, login/game FSMs, linear `index.ts`, up to IN_GAME) → `guardrails-reviewer` → `run-debugger` (gate 2). For audit/run, `guardrails-reviewer` audits `src/` against `l2-guardrails` before running, `run-debugger` runs `npm run dev` and diagnoses a FAIL per `debug-l2`, and `plane-navigator` answers "what does PLANE.md say about X" without re-reading the whole spec.
 
-INFO.md (Russian) is the catalog of these skills and subagents with their tool sets — update it when adding or changing entries under `.claude/`. `writing-great-skills` carries `disable-model-invocation: true`, so it only loads when a user invokes it by name.
+INFO.md (Russian) is the catalog of these skills and subagents with their tool sets — update it when adding or changing entries under `.claude/`. `writing-great-skills` (SKILL.md + GLOSSARY.md) carries `disable-model-invocation: true`, so it only loads when a user invokes it by name.
 
 `.claude/worktrees/` is a scratch area for git-worktree isolation of subagents — an empty directory here is normal, not a leftover to clean up.
 
