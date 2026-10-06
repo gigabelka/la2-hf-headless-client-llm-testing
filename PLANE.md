@@ -208,7 +208,7 @@ l2-headless-client/
 ### `.env.example`
 
 ```bash
-L2_LOGIN_IP=192.168.0.33     # Login server IP
+L2_LOGIN_IP=127.0.0.1     # Login server IP
 L2_LOGIN_PORT=2106        # Login server port
 L2_GAME_PORT=7777         # Game server port (host comes from the server list)
 #L2_GAME_IP=              # OPTIONAL. Set only to override the host from the server list
